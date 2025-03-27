@@ -6,10 +6,11 @@ from typing import Optional
 import jwt
 import sqlalchemy as sa
 import sqlalchemy.orm as so
+from flask import current_app
 from flask_login import UserMixin
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from app import app, db, login
+from app import db, login
 
 followers = sa.Table(
     "followers",
@@ -17,11 +18,6 @@ followers = sa.Table(
     sa.Column("follower_id", sa.Integer, sa.ForeignKey("user.id"), primary_key=True),
     sa.Column("followed_id", sa.Integer, sa.ForeignKey("user.id"), primary_key=True),
 )
-
-
-@login.user_loader
-def load_user(id):
-    return db.session.get(User, int(id))
 
 
 class User(UserMixin, db.Model):
@@ -33,6 +29,7 @@ class User(UserMixin, db.Model):
     last_seen: so.Mapped[Optional[datetime]] = so.mapped_column(
         default=lambda: datetime.now(timezone.utc)
     )
+
     posts: so.WriteOnlyMapped["Post"] = so.relationship(back_populates="author")
     following: so.WriteOnlyMapped["User"] = so.relationship(
         secondary=followers,
@@ -104,19 +101,24 @@ class User(UserMixin, db.Model):
     def get_reset_password_token(self, expires_in=600):
         return jwt.encode(
             {"reset_password": self.id, "exp": time() + expires_in},
-            app.config["SECRET_KEY"],
+            current_app.config["SECRET_KEY"],
             algorithm="HS256",
         )
 
     @staticmethod
     def verify_reset_password_token(token):
         try:
-            id = jwt.decode(token, app.config["SECRET_KEY"], algorithms=["HS256"])[
-                "reset_password"
-            ]
-        except:
+            id = jwt.decode(
+                token, current_app.config["SECRET_KEY"], algorithms=["HS256"]
+            )["reset_password"]
+        except Exception:
             return
         return db.session.get(User, id)
+
+
+@login.user_loader
+def load_user(id):
+    return db.session.get(User, int(id))
 
 
 class Post(db.Model):
@@ -126,9 +128,9 @@ class Post(db.Model):
         index=True, default=lambda: datetime.now(timezone.utc)
     )
     user_id: so.Mapped[int] = so.mapped_column(sa.ForeignKey(User.id), index=True)
+    language: so.Mapped[Optional[str]] = so.mapped_column(sa.String(5))
 
     author: so.Mapped[User] = so.relationship(back_populates="posts")
-    language: so.Mapped[Optional[str]] = so.mapped_column(sa.String(5))
 
     def __repr__(self):
         return "<Post {}>".format(self.body)
